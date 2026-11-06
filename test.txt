@@ -1,5 +1,0 @@
-测试
-
-<!DOCTYPE html>
-<meta charset="utf-8" />
-<p>请照指示访问该站点</p>

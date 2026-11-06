@@ -9,3 +9,6 @@ wheels/
 
 # Virtual environments
 .venv
+
+src/mnbtcli/ds_generated.py
+src/mnbtcli/mnbtcli_resource.js

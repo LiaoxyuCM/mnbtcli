@@ -3,13 +3,9 @@
 由 DeepSeek 编写, 非官方项目, 主要用于不支持 FTP 的 MNBT 虚拟主机
 若出事了, 使用者负全部责任
 
-主要参数如下: `uv run mnbtcli `
+已实现参数如下: `uv run mnbtcli `
 
-- `changefilecontent`
-- `listfile`
-- `setfilename`
-- `deletefile`
-- `createfile`
+- `vim|vi|nano|notepad </path/to/file.txt>`
 
 ## 登录
 
