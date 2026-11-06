@@ -6,6 +6,7 @@
 已实现参数如下: `uv run mnbtcli `
 
 - `vim|vi|nano|notepad </path/to/file.txt>`
+- `ls <dir/>`
 
 ## 登录
 

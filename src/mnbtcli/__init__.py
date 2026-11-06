@@ -3,6 +3,7 @@ import sys
 import time
 import requests
 import subprocess
+import tempfile
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -17,6 +18,89 @@ COOKIES = {
     "user_token": os.getenv("AUTH_USER_TOKEN"),
     "PHPSESSID": os.getenv("AUTH_PHP_SESSION_TOKEN"),
 }
+
+
+def _human_size(n):
+    try:
+        n = int(n)
+    except (TypeError, ValueError):
+        return str(n)
+    for unit in ("B", "KB", "MB", "GB", "TB"):
+        if n < 1024 or unit == "TB":
+            return f"{n:.1f} {unit}" if unit != "B" else f"{n} B"
+        n /= 1024.0
+
+
+def _fmt_time(ts):
+    try:
+        return time.strftime("%Y-%m-%d %H:%M", time.localtime(int(ts)))
+    except (TypeError, ValueError, OSError):
+        return str(ts)
+
+
+# 显示宽度：中文算 2 列
+def _width(s):
+    w = 0
+    for ch in str(s):
+        w += 2 if ord(ch) > 0x2E80 else 1
+    return w
+
+
+def _pad(s, w, align="left"):
+    s = str(s)
+    gap = w - _width(s)
+    if gap <= 0:
+        return s
+    return s + " " * gap if align == "left" else " " * gap + s
+
+
+def _truncate(s, w):
+    s = str(s)
+    if _width(s) <= w:
+        return s
+    out, cur = "", 0
+    for ch in s:
+        cw = 2 if ord(ch) > 0x2E80 else 1
+        if cur + cw > w - 1:
+            break
+        out += ch
+        cur += cw
+    return out + "…"
+
+
+def print_table(title, headers, rows, aligns=None):
+    """打印一个自适应列宽的表格。"""
+    if aligns is None:
+        aligns = ["left"] * len(headers)
+
+    # 计算每列宽度（表头 vs 数据）
+    widths = [_width(h) for h in headers]
+    for r in rows:
+        for i, cell in enumerate(r):
+            widths[i] = max(widths[i], _width(cell))
+
+    # 上限截断（避免超宽）
+    MAX = 60
+    widths = [min(w, MAX) for w in widths]
+
+    total = sum(widths) + 3 * (len(headers) - 1)
+    bar = "─" * total
+
+    print()
+    print(f"┌─ {title} " + "─" * max(0, total - _width(title) - 3) + "┐")
+    # 表头
+    head_line = "  ".join(_pad(h, widths[i], aligns[i])
+                          for i, h in enumerate(headers))
+    print("│ " + head_line + " │")
+    print("├" + bar + "┤")
+    # 数据
+    for r in rows:
+        cells = [_truncate(c, widths[i]) for i, c in enumerate(r)]
+        line = "  ".join(_pad(c, widths[i], aligns[i])
+                         for i, c in enumerate(cells))
+        print("│ " + line + " │")
+    print("└" + bar + "┘")
+    print()
 
 def request_server(data):
     try:
@@ -79,6 +163,43 @@ def render_changefile(result, sent_data=None):
     else:
         pp(result)
 
+def render_listfile(result):
+    """渲染 listfile 的返回值。"""
+    if not isinstance(result, dict):
+        return
+
+    rows = result.get("rows") or []
+    path = result.get("path", "/")
+    total = result.get("total", len(rows))
+
+    # 顶部摘要
+    n_dir = sum(1 for r in rows if r.get("type") == "dir")
+    n_file = sum(1 for r in rows if r.get("type") == "file")
+    total_size = sum(int(r.get("size", 0) or 0) for r in rows)
+    print()
+    print(f"目录浏览  {path:<45}")
+    print(f"合计 {total} 项 · 目录 {n_dir} · 文件 {n_file} · 体积 {_human_size(total_size):<12}")
+
+    if not rows:
+        print("  (空目录)")
+        return
+
+    # 表格
+    table_rows = []
+    for r in rows:
+        table_rows.append([
+            r.get("name", "") + ("/" if r.get("type") == "dir" else ""),
+            _human_size(r.get("size", 0)),
+            _fmt_time(r.get("mtime", 0)),
+            "⬇" + str(r.get("download", "0"))
+        ])
+    print_table(
+        "明细",
+        ["名称", "大小", "修改时间", "下载"],
+        table_rows,
+    )
+
+
 
 def main():
     dtx = {}
@@ -91,9 +212,9 @@ def main():
 欢迎使用 MNBTCLI ! 用法如下:
     已实现
         vim|vi|nano|notepad </path/to/file.txt>
+        ls <dir/>
 
     未实现
-        ls <dir>
         mv_samedir <path/> <old_filename> <new_filename>
         mv_samefilename <old_path/> <new_path/> <filename>
         rm [-i] <path/> <filename>
@@ -109,7 +230,6 @@ def main():
             print("缺少必要参数\nvim|vi|nano|notepad <path/to/file.txt>")
             return  # 或 sys.exit(1)
 
-        import tempfile, subprocess, os
         fd, tmp = tempfile.mkstemp()
         os.close(fd)
         try:
@@ -123,9 +243,17 @@ def main():
 
             with open(tmp) as f:
                 dtx = {"gn": "setwj", "wj": rest[0], "nr": f.read()}
-            request_server(dtx)
+            # request_server(dtx)
         finally:
             os.remove(tmp)
+    elif cmd == "ls":
+        if not rest:
+            print("缺少必要参数\nls <path/>")
+            return  # 或 sys.exit(1)
+        dtx = {"gn": "listfile", "path": rest[0], "limit": "100",
+                    "offset": "0", "page": "1", "sort": "name",
+                    "sortOrder": "asc"}
+
 
 
     resp = request_server(dtx);
@@ -144,9 +272,8 @@ def main():
     gn = dtx.get("gn")
     if gn == "setwj":
         render_changefile(result, dtx)
-
-    # if gn == "listfile":
-    #     render_listfile(result)
+    elif gn == "listfile":
+         render_listfile(result)
     # else:
     #     render_generic(result)
 
